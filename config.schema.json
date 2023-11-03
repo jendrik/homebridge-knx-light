@@ -1,0 +1,135 @@
+{
+  "pluginAlias": "knx-light",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "ip": {
+      "title": "KNX Router or Interface",
+      "type": "string",
+      "placeholder": "224.0.23.12",
+      "description": "IP of the KNX Router."
+    },
+    "port": {
+      "title": "KNX Port",
+      "type": "string",
+      "placeholder": "3671",
+      "description": "KNX Port"
+    },
+    "devices": {
+      "type": "array",
+      "items": {
+        "title": "Lights",
+        "type": "object",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string",
+            "required": true,
+            "placeholder": "Display Name for Light"
+          },
+          "set_status": {
+            "title": "Set Status Address",
+            "type": "string",
+            "required": true,
+            "placeholder": "1/1/1",
+            "pattern": "^[0-9]{1,4}/[0-9]{1,4}/[0-9]{1,4}$"
+          },
+          "listen_status": {
+            "title": "Listen Status Address",
+            "type": "string",
+            "required": true,
+            "placeholder": "1/1/1",
+            "pattern": "^[0-9]{1,4}/[0-9]{1,4}/[0-9]{1,4}$"
+          },
+          "set_brightness": {
+            "title": "Set Brightness Address",
+            "type": "string",
+            "required": false,
+            "placeholder": "1/1/1",
+            "pattern": "^[0-9]{1,4}/[0-9]{1,4}/[0-9]{1,4}$"
+          },
+          "listen_brightness": {
+            "title": "Listen Brightness Address",
+            "type": "string",
+            "required": false,
+            "placeholder": "1/1/1",
+            "pattern": "^[0-9]{1,4}/[0-9]{1,4}/[0-9]{1,4}$"
+          },
+          "set_brightness_r": {
+            "title": "Set Brightness Red Address",
+            "type": "string",
+            "required": false,
+            "placeholder": "1/1/1",
+            "pattern": "^[0-9]{1,4}/[0-9]{1,4}/[0-9]{1,4}$"
+          },
+          "listen_brightness_r": {
+            "title": "Listen Brightness Red Address",
+            "type": "string",
+            "required": false,
+            "placeholder": "1/1/1",
+            "pattern": "^[0-9]{1,4}/[0-9]{1,4}/[0-9]{1,4}$"
+          },
+          "set_brightness_g": {
+            "title": "Set Brightness Green Address",
+            "type": "string",
+            "required": false,
+            "placeholder": "1/1/1",
+            "pattern": "^[0-9]{1,4}/[0-9]{1,4}/[0-9]{1,4}$"
+          },
+          "listen_brightness_g": {
+            "title": "Listen Brightness Green Address",
+            "type": "string",
+            "required": false,
+            "placeholder": "1/1/1",
+            "pattern": "^[0-9]{1,4}/[0-9]{1,4}/[0-9]{1,4}$"
+          },
+          "set_brightness_b": {
+            "title": "Set Brightness Blue Address",
+            "type": "string",
+            "required": false,
+            "placeholder": "1/1/1",
+            "pattern": "^[0-9]{1,4}/[0-9]{1,4}/[0-9]{1,4}$"
+          },
+          "listen_brightness_b": {
+            "title": "Listen Brightness Blue Address",
+            "type": "string",
+            "required": false,
+            "placeholder": "1/1/1",
+            "pattern": "^[0-9]{1,4}/[0-9]{1,4}/[0-9]{1,4}$"
+          }
+        }
+      }
+    }
+  },
+  "layout": [
+    {
+      "key": "devices",
+      "type": "array",
+      "orderable": false,
+      "buttonText": "Add Light",
+      "items": [
+        "devices[].name",
+        "devices[].set_status",
+        "devices[].listen_status",
+        "devices[].set_brightness",
+        "devices[].listen_brightness",
+        "devices[].set_brightness_r",
+        "devices[].listen_brightness_r",
+        "devices[].set_brightness_g",
+        "devices[].listen_brightness_g",
+        "devices[].set_brightness_b",
+        "devices[].listen_brightness_b"
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Global",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "ip",
+        "port"
+      ]
+    }
+  ]
+}
