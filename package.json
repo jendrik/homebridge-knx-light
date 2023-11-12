@@ -40,7 +40,6 @@
   "dependencies": {
     "colorsys": "^1.0.22",
     "fakegato-history": "^0.6.4",
-    "knx": "^2.5.2",
-    "npm": "^7.6.1"
+    "knx": "^2.5.2"
   }
 }
