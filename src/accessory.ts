@@ -3,9 +3,9 @@ import { AccessoryConfig, AccessoryPlugin, CharacteristicValue, Service } from '
 import { Datapoint } from 'knx';
 import fakegato from 'fakegato-history';
 
-import { PLUGIN_NAME, PLUGIN_VERSION, PLUGIN_DISPLAY_NAME } from './settings';
+import { PLUGIN_NAME, PLUGIN_VERSION, PLUGIN_DISPLAY_NAME } from './settings.js';
 
-import { LightPlatform } from './platform';
+import { LightPlatform } from './platform.js';
 
 import colorsys from 'colorsys';
 

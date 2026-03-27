@@ -4,13 +4,13 @@ import fakegato from 'fakegato-history';
 
 import { Connection } from 'knx';
 
-import { LightAccessory } from './accessory';
+import { LightAccessory } from './accessory.js';
 
 
 export class LightPlatform implements StaticPlatformPlugin {
-  public readonly Service: typeof Service = this.api.hap.Service;
-  public readonly Characteristic: typeof Characteristic = this.api.hap.Characteristic;
-  public readonly uuid: typeof uuid = this.api.hap.uuid;
+  public readonly Service: typeof Service;
+  public readonly Characteristic: typeof Characteristic;
+  public readonly uuid: typeof uuid;
 
   public readonly fakeGatoHistoryService;
 
@@ -23,6 +23,9 @@ export class LightPlatform implements StaticPlatformPlugin {
     public readonly config: PlatformConfig,
     public readonly api: API,
   ) {
+    this.Service = api.hap.Service;
+    this.Characteristic = api.hap.Characteristic;
+    this.uuid = api.hap.uuid;
     this.fakeGatoHistoryService = fakegato(this.api);
 
     // connect
