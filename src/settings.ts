@@ -8,4 +8,4 @@ export const PLATFORM_NAME = 'knx-light';
  */
 export const PLUGIN_NAME = 'homebridge-' + PLATFORM_NAME;
 export const PLUGIN_DISPLAY_NAME = 'KNX Light';
-export const PLUGIN_VERSION = '0.1.1';
+export const PLUGIN_VERSION = '0.2.0';
