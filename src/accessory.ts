@@ -1,13 +1,14 @@
-import { AccessoryConfig, AccessoryPlugin, CharacteristicValue, Service } from 'homebridge';
+import { AccessoryPlugin, CharacteristicValue, Service } from 'homebridge';
 
 import { Datapoint } from 'knx';
 import fakegato from 'fakegato-history';
 
 import { PLUGIN_NAME, PLUGIN_VERSION, PLUGIN_DISPLAY_NAME } from './settings.js';
 
-import { LightPlatform } from './platform.js';
-
-import colorsys from 'colorsys';
+import { hsvToRgb, hsvToRgbw } from './color.js';
+import { detectLightMode, type LightDeviceConfig } from './config.js';
+import { createDatapoint } from './datapoints.js';
+import type { LightPlatform } from './platform.js';
 
 export const FADING_TIME_MS = 500;
 
@@ -16,55 +17,32 @@ export class LightAccessory implements AccessoryPlugin {
   private readonly uuid_base: string;
   private readonly name: string;
   private readonly displayName: string;
-  private readonly set_status: string;
-  private readonly listen_status: string;
-  private readonly set_brightness: string;
-  private readonly listen_brightness: string;
-  private readonly set_brightness_r: string;
-  private readonly listen_brightness_r: string;
-  private readonly set_brightness_g: string;
-  private readonly listen_brightness_g: string;
-  private readonly set_brightness_b: string;
-  private readonly listen_brightness_b: string;
 
   private readonly lightService: Service;
   private readonly loggingService: fakegato;
   private readonly informationService: Service;
 
-  private timer;
+  private timer: ReturnType<typeof setTimeout> | undefined;
 
-  private r;
-  private g;
-  private b;
-  private w;
+  private red: number | undefined;
+  private green: number | undefined;
+  private blue: number | undefined;
+  private white: number | undefined;
 
-  private hue;
-  private saturation;
-  private brightness;
+  private hue: number | undefined;
+  private saturation: number | undefined;
+  private brightness: number | undefined;
 
   constructor(
     private readonly platform: LightPlatform,
-    private readonly config: AccessoryConfig,
+    private readonly config: LightDeviceConfig,
   ) {
     this.name = config.name;
-    this.set_status = config.set_status;
-    this.listen_status = config.listen_status;
-    this.set_brightness = config.set_brightness;
-    this.listen_brightness = config.listen_brightness;
-    this.set_brightness_r = config.set_brightness_r;
-    this.listen_brightness_r = config.listen_brightness_r;
-    this.set_brightness_g = config.set_brightness_g;
-    this.listen_brightness_g = config.listen_brightness_g;
-    this.set_brightness_b = config.set_brightness_b;
-    this.listen_brightness_b = config.listen_brightness_b;
-    this.uuid_base = platform.uuid.generate(PLUGIN_NAME + '-' + this.name + '-' + this.listen_status);
+    this.uuid_base = platform.uuid.generate(PLUGIN_NAME + '-' + this.name + '-' + this.config.listenStatus);
     this.displayName = this.uuid_base;
-
-    this.r = undefined;
 
     this.informationService = new platform.Service.AccessoryInformation()
       .setCharacteristic(platform.Characteristic.Name, this.name)
-      .setCharacteristic(platform.Characteristic.Identify, this.name)
       .setCharacteristic(platform.Characteristic.Manufacturer, '@jendrik')
       .setCharacteristic(platform.Characteristic.Model, PLUGIN_DISPLAY_NAME)
       .setCharacteristic(platform.Characteristic.SerialNumber, this.displayName)
@@ -74,350 +52,13 @@ export class LightAccessory implements AccessoryPlugin {
 
     this.loggingService = new platform.fakeGatoHistoryService('switch', this, { storage: 'fs', log: platform.log });
 
-    const dp_listen_status = new Datapoint({
-      ga: this.listen_status,
-      dpt: 'DPT1.001',
-      autoread: true,
-    }, platform.connection);
+    this.configureOnCharacteristic();
 
-    const dp_set_status = new Datapoint({
-      ga: this.set_status,
-      dpt: 'DPT1.001',
-    }, platform.connection);
-
-    dp_listen_status.on('change', (oldValue: number, newValue: number) => {
-      platform.log.info(`Light Status: ${newValue}`);
-      this.lightService.getCharacteristic(platform.Characteristic.On).updateValue(newValue);
-      this.loggingService._addEntry({ time: Math.round(new Date().valueOf() / 1000), status: newValue ? 1 : 0 });
-    });
-
-    this.lightService.getCharacteristic(platform.Characteristic.On)
-      .onSet(async (value: CharacteristicValue) => {
-        if (this.timer !== undefined) {
-          // the timer is still running, so we do not accept any new ON commands from homekit
-          platform.log.info(`Ignoring Set Status: ${value}`);
-          //clearTimeout(this.timer);
-        } else {
-          platform.log.info(`Set Status: ${value}`);
-          dp_set_status.write(Boolean(value));
-        }
-      });
-
-    if (this.set_brightness !== undefined
-      && this.set_brightness_r !== undefined
-      && this.set_brightness_g !== undefined
-      && this.set_brightness_b !== undefined) {
-      this.lightService.addCharacteristic(platform.Characteristic.Hue);
-      this.lightService.addCharacteristic(platform.Characteristic.Saturation);
-      this.lightService.addCharacteristic(platform.Characteristic.Brightness);
-
-      if (this.listen_brightness_r !== undefined) {
-        const dp_listen_brightness_r = new Datapoint({
-          ga: this.listen_brightness_r,
-          dpt: 'DPT5.001',
-          autoread: true,
-        }, platform.connection);
-
-        dp_listen_brightness_r.on('change', (oldValue: number, newValue: number) => {
-          platform.log.info(`Light Brightness R: ${newValue}`);
-          this.r = newValue;
-        });
-      }
-
-      if (this.listen_brightness_g !== undefined) {
-        const dp_listen_brightness_g = new Datapoint({
-          ga: this.listen_brightness_g,
-          dpt: 'DPT5.001',
-          autoread: true,
-        }, platform.connection);
-
-        dp_listen_brightness_g.on('change', (oldValue: number, newValue: number) => {
-          platform.log.info(`Light Brightness G: ${newValue}`);
-          this.g = newValue;
-        });
-      }
-
-      if (this.listen_brightness_b !== undefined) {
-        const dp_listen_brightness_b = new Datapoint({
-          ga: this.listen_brightness_b,
-          dpt: 'DPT5.001',
-          autoread: true,
-        }, platform.connection);
-
-        dp_listen_brightness_b.on('change', (oldValue: number, newValue: number) => {
-          platform.log.info(`Light Brightness B: ${newValue}`);
-          this.b = newValue;
-        });
-      }
-
-      if (this.listen_brightness !== undefined) {
-        const dp_listen_brightness = new Datapoint({
-          ga: this.listen_brightness,
-          dpt: 'DPT5.001',
-          autoread: true,
-        }, platform.connection);
-
-        dp_listen_brightness.on('change', (oldValue: number, newValue: number) => {
-          platform.log.info(`Light Brightness W: ${newValue}`);
-          this.w = newValue;
-        });
-      }
-
-      const dp_set_brightness_r = new Datapoint({
-        ga: this.set_brightness_r,
-        dpt: 'DPT5',
-      }, platform.connection);
-
-      const dp_set_brightness_g = new Datapoint({
-        ga: this.set_brightness_g,
-        dpt: 'DPT5',
-      }, platform.connection);
-
-      const dp_set_brightness_b = new Datapoint({
-        ga: this.set_brightness_b,
-        dpt: 'DPT5',
-      }, platform.connection);
-
-      const dp_set_brightness_w = new Datapoint({
-        ga: this.set_brightness,
-        dpt: 'DPT5.001',
-      }, platform.connection);
-
-      this.lightService.getCharacteristic(platform.Characteristic.Hue)
-        .onSet(async (value: CharacteristicValue) => {
-          this.timer = setTimeout(() => {
-            this.timer = undefined;
-          }, FADING_TIME_MS);
-
-          platform.log.info(`Set Hue: ${value} - ${Number(value)}`);
-          this.hue = Number(value);
-          if (this.hue !== undefined && this.saturation !== undefined && this.brightness !== undefined) {
-            platform.log.info(`HSV ${this.hue} - ${this.saturation} - ${this.brightness}`);
-            const rgb = colorsys.hsv2Rgb(this.hue, this.saturation, this.brightness);
-            platform.log.info(`RGB ${rgb.r} - ${rgb.g} - ${rgb.b}`);
-            const rgbw = this.hsv2rgbw(this.hue, this.saturation, this.brightness);
-            platform.log.info(`RGBW ${rgbw.r} - ${rgbw.g} - ${rgbw.b} - ${rgbw.w}`);
-            dp_set_brightness_r.write(rgbw.r);
-            dp_set_brightness_g.write(rgbw.g);
-            dp_set_brightness_b.write(rgbw.b);
-            dp_set_brightness_w.write(rgbw.w);
-          }
-        });
-
-      this.lightService.getCharacteristic(platform.Characteristic.Saturation)
-        .onSet(async (value: CharacteristicValue) => {
-          this.timer = setTimeout(() => {
-            this.timer = undefined;
-          }, FADING_TIME_MS);
-
-          platform.log.info(`Set Saturation: ${value} - ${Number(value)}`);
-          this.saturation = Number(value);
-          if (this.hue !== undefined && this.saturation !== undefined && this.brightness !== undefined) {
-            platform.log.info(`HSV ${this.hue} - ${this.saturation} - ${this.brightness}`);
-            const rgb = colorsys.hsv2Rgb(this.hue, this.saturation, this.brightness);
-            platform.log.info(`RGB ${rgb.r} - ${rgb.g} - ${rgb.b}`);
-            const rgbw = this.hsv2rgbw(this.hue, this.saturation, this.brightness);
-            platform.log.info(`RGBW ${rgbw.r} - ${rgbw.g} - ${rgbw.b} - ${rgbw.w}`);
-            dp_set_brightness_r.write(rgbw.r);
-            dp_set_brightness_g.write(rgbw.g);
-            dp_set_brightness_b.write(rgbw.b);
-            dp_set_brightness_w.write(rgbw.w);
-          }
-        });
-
-      this.lightService.getCharacteristic(platform.Characteristic.Brightness)
-        .onSet(async (value: CharacteristicValue) => {
-          this.timer = setTimeout(() => {
-            this.timer = undefined;
-          }, FADING_TIME_MS);
-
-          platform.log.info(`Set Brightness: ${value} - ${Number(value)}`);
-          this.brightness = Number(value);
-          if (this.hue !== undefined && this.saturation !== undefined && this.brightness !== undefined) {
-            platform.log.info(`HSV ${this.hue} - ${this.saturation} - ${this.brightness}`);
-            const rgb = colorsys.hsv2Rgb(this.hue, this.saturation, this.brightness);
-            platform.log.info(`RGB ${rgb.r} - ${rgb.g} - ${rgb.b}`);
-            const rgbw = this.hsv2rgbw(this.hue, this.saturation, this.brightness);
-            platform.log.info(`RGBW ${rgbw.r} - ${rgbw.g} - ${rgbw.b} - ${rgbw.w}`);
-            dp_set_brightness_r.write(rgbw.r);
-            dp_set_brightness_g.write(rgbw.g);
-            dp_set_brightness_b.write(rgbw.b);
-            dp_set_brightness_w.write(rgbw.w);
-          }
-        });
-
-    } else if (this.set_brightness_r !== undefined
-      && this.set_brightness_g !== undefined
-      && this.set_brightness_b !== undefined) {
-      this.lightService.addCharacteristic(platform.Characteristic.Hue);
-      this.lightService.addCharacteristic(platform.Characteristic.Saturation);
-      this.lightService.addCharacteristic(platform.Characteristic.Brightness);
-
-      if (this.listen_brightness_r !== undefined) {
-        const dp_listen_brightness_r = new Datapoint({
-          ga: this.listen_brightness_r,
-          dpt: 'DPT5.001',
-          autoread: true,
-        }, platform.connection);
-
-        dp_listen_brightness_r.on('change', (oldValue: number, newValue: number) => {
-          platform.log.info(`Light Brightness R: ${newValue}`);
-          this.r = newValue;
-          if (this.r !== undefined && this.g !== undefined && this.b !== undefined) {
-            platform.log.info(`RGB ${this.r} - ${this.g} - ${this.b}`);
-            const hsv = colorsys.rgb2Hsv(this.r, this.g, this.b);
-            platform.log.info(`HSV ${hsv.h} - ${hsv.s} - ${hsv.v}`);
-            // this.lightService.getCharacteristic(platform.Characteristic.Hue).updateValue(hsv.h);
-            // this.lightService.getCharacteristic(platform.Characteristic.Saturation).updateValue(hsv.s);
-            // this.lightService.getCharacteristic(platform.Characteristic.Brightness).updateValue(hsv.v);
-          }
-        });
-      }
-
-      if (this.listen_brightness_g !== undefined) {
-        const dp_listen_brightness_g = new Datapoint({
-          ga: this.listen_brightness_g,
-          dpt: 'DPT5.001',
-          autoread: true,
-        }, platform.connection);
-
-        dp_listen_brightness_g.on('change', (oldValue: number, newValue: number) => {
-          platform.log.info(`Light Brightness G: ${newValue}`);
-          this.g = newValue;
-          if (this.r !== undefined && this.g !== undefined && this.b !== undefined) {
-            platform.log.info(`RGB ${this.r} - ${this.g} - ${this.b}`);
-            const hsv = colorsys.rgb2Hsv(this.r, this.g, this.b);
-            platform.log.info(`HSV ${hsv.h} - ${hsv.s} - ${hsv.v}`);
-            // this.lightService.getCharacteristic(platform.Characteristic.Hue).updateValue(hsv.h);
-            // this.lightService.getCharacteristic(platform.Characteristic.Saturation).updateValue(hsv.s);
-            // this.lightService.getCharacteristic(platform.Characteristic.Brightness).updateValue(hsv.v);
-          }
-        });
-      }
-
-      if (this.listen_brightness_b !== undefined) {
-        const dp_listen_brightness_b = new Datapoint({
-          ga: this.listen_brightness_b,
-          dpt: 'DPT5.001',
-          autoread: true,
-        }, platform.connection);
-
-        dp_listen_brightness_b.on('change', (oldValue: number, newValue: number) => {
-          platform.log.info(`Light Brightness B: ${newValue}`);
-          this.b = newValue;
-          if (this.r !== undefined && this.g !== undefined && this.b !== undefined) {
-            platform.log.info(`RGB ${this.r} - ${this.g} - ${this.b}`);
-            const hsv = colorsys.rgb2Hsv(this.r, this.g, this.b);
-            platform.log.info(`HSV ${hsv.h} - ${hsv.s} - ${hsv.v}`);
-            // this.lightService.getCharacteristic(platform.Characteristic.Hue).updateValue(hsv.h);
-            // this.lightService.getCharacteristic(platform.Characteristic.Saturation).updateValue(hsv.s);
-            // this.lightService.getCharacteristic(platform.Characteristic.Brightness).updateValue(hsv.v);
-          }
-        });
-      }
-
-      const dp_set_brightness_r = new Datapoint({
-        ga: this.set_brightness_r,
-        dpt: 'DPT5',
-      }, platform.connection);
-
-      const dp_set_brightness_g = new Datapoint({
-        ga: this.set_brightness_g,
-        dpt: 'DPT5',
-      }, platform.connection);
-
-      const dp_set_brightness_b = new Datapoint({
-        ga: this.set_brightness_b,
-        dpt: 'DPT5',
-      }, platform.connection);
-
-      this.lightService.getCharacteristic(platform.Characteristic.Hue)
-        .onSet(async (value: CharacteristicValue) => {
-          this.timer = setTimeout(() => {
-            this.timer = undefined;
-          }, FADING_TIME_MS);
-
-          platform.log.info(`Set Hue: ${value} - ${Number(value)}`);
-          this.hue = Number(value);
-          if (this.hue !== undefined && this.saturation !== undefined && this.brightness !== undefined) {
-            platform.log.info(`HSV ${this.hue} - ${this.saturation} - ${this.brightness}`);
-            const rgb = colorsys.hsv2Rgb(this.hue, this.saturation, this.brightness);
-            platform.log.info(`RGB ${rgb.r} - ${rgb.g} - ${rgb.b}`);
-            dp_set_brightness_r.write(rgb.r);
-            dp_set_brightness_g.write(rgb.g);
-            dp_set_brightness_b.write(rgb.b);
-          }
-        });
-
-      this.lightService.getCharacteristic(platform.Characteristic.Saturation)
-        .onSet(async (value: CharacteristicValue) => {
-          this.timer = setTimeout(() => {
-            this.timer = undefined;
-          }, FADING_TIME_MS);
-
-          platform.log.info(`Set Saturation: ${value} - ${Number(value)}`);
-          this.saturation = Number(value);
-          if (this.hue !== undefined && this.saturation !== undefined && this.brightness !== undefined) {
-            platform.log.info(`HSV ${this.hue} - ${this.saturation} - ${this.brightness}`);
-            const rgb = colorsys.hsv2Rgb(this.hue, this.saturation, this.brightness);
-            platform.log.info(`RGB ${rgb.r} - ${rgb.g} - ${rgb.b}`);
-            dp_set_brightness_r.write(rgb.r);
-            dp_set_brightness_g.write(rgb.g);
-            dp_set_brightness_b.write(rgb.b);
-          }
-        });
-
-      this.lightService.getCharacteristic(platform.Characteristic.Brightness)
-        .onSet(async (value: CharacteristicValue) => {
-          this.timer = setTimeout(() => {
-            this.timer = undefined;
-          }, FADING_TIME_MS);
-
-          platform.log.info(`Set Brightness: ${value} - ${Number(value)}`);
-          this.brightness = Number(value);
-          if (this.hue !== undefined && this.saturation !== undefined && this.brightness !== undefined) {
-            platform.log.info(`HSV ${this.hue} - ${this.saturation} - ${this.brightness}`);
-            const rgb = colorsys.hsv2Rgb(this.hue, this.saturation, this.brightness);
-            platform.log.info(`RGB ${rgb.r} - ${rgb.g} - ${rgb.b}`);
-            dp_set_brightness_r.write(rgb.r);
-            dp_set_brightness_g.write(rgb.g);
-            dp_set_brightness_b.write(rgb.b);
-          }
-        });
-
-    } else if (this.listen_brightness !== undefined || this.set_brightness !== undefined) {
-      this.lightService.addCharacteristic(platform.Characteristic.Brightness);
-
-      if (this.listen_brightness !== undefined) {
-        const dp_listen_brightness = new Datapoint({
-          ga: this.listen_brightness,
-          dpt: 'DPT5.001',
-          autoread: true,
-        }, platform.connection);
-
-        dp_listen_brightness.on('change', (oldValue: number, newValue: number) => {
-          platform.log.info(`Light Brightness: ${newValue}`);
-          this.lightService.getCharacteristic(platform.Characteristic.Brightness).updateValue(newValue);
-          // TODO: update on/off state here as well?
-        });
-      }
-
-      if (this.set_brightness !== undefined) {
-        const dp_set_brightness = new Datapoint({
-          ga: this.set_brightness,
-          dpt: 'DPT5.001',
-        }, platform.connection);
-
-        this.lightService.getCharacteristic(platform.Characteristic.Brightness)
-          .onSet(async (value: CharacteristicValue) => {
-            this.timer = setTimeout(() => {
-              this.timer = undefined;
-            }, FADING_TIME_MS);
-
-            platform.log.info(`Set Brightness: ${value} - ${Number(value)}`);
-            dp_set_brightness.write(Number(value));
-          });
-      }
+    const mode = detectLightMode(config);
+    if (mode.rgb || mode.rgbw) {
+      this.configureColorMode(mode.rgbw);
+    } else if (mode.dimmer) {
+      this.configureDimmerMode();
     }
   }
 
@@ -429,37 +70,187 @@ export class LightAccessory implements AccessoryPlugin {
     ];
   }
 
-  hsv2rgbw(h, s, v) {
-    const rgb = colorsys.hsv2Rgb(h, s, v);
+  private configureOnCharacteristic(): void {
+    const dpListenStatus = createDatapoint(this.platform.connection, {
+      groupAddress: this.config.listenStatus,
+      dpt: 'DPT1.001',
+      autoread: true,
+    });
 
-    // Source: https://stackoverflow.com/questions/40312216/converting-rgb-to-rgbw
-    const tM = Math.max(rgb.r, Math.max(rgb.g, rgb.b));
-    if (tM === 0) { // black
-      return { r: 0, g: 0, b: 0, w: 0 };
+    const dpSetStatus = createDatapoint(this.platform.connection, {
+      groupAddress: this.config.setStatus,
+      dpt: 'DPT1.001',
+    });
+
+    dpListenStatus.on('change', (_oldValue: unknown, newValue: unknown) => {
+      const status = Boolean(newValue);
+      this.platform.log.info(`${this.name}: status ${this.config.listenStatus} -> ${status}`);
+      this.lightService.getCharacteristic(this.platform.Characteristic.On).updateValue(status);
+      this.loggingService._addEntry({ time: Math.round(Date.now() / 1000), status: status ? 1 : 0 });
+    });
+
+    this.lightService.getCharacteristic(this.platform.Characteristic.On)
+      .onSet(async (value: CharacteristicValue) => {
+        if (this.timer !== undefined) {
+          this.platform.log.info(`${this.name}: ignoring on/off write during color fade`);
+          return;
+        }
+
+        const status = Boolean(value);
+        this.platform.log.info(`${this.name}: set ${this.config.setStatus} -> ${status}`);
+        dpSetStatus.write(status);
+      });
+  }
+
+  private configureDimmerMode(): void {
+    this.lightService.addCharacteristic(this.platform.Characteristic.Brightness);
+
+    if (this.config.listenBrightness) {
+      const dpListenBrightness = createDatapoint(this.platform.connection, {
+        groupAddress: this.config.listenBrightness,
+        dpt: 'DPT5.001',
+        autoread: true,
+      });
+
+      dpListenBrightness.on('change', (_oldValue: unknown, newValue: unknown) => {
+        const brightness = Number(newValue);
+        this.platform.log.info(`${this.name}: brightness ${this.config.listenBrightness} -> ${brightness}`);
+        this.lightService.getCharacteristic(this.platform.Characteristic.Brightness).updateValue(brightness);
+      });
     }
 
-    // This section serves to figure out what the color with 100% hue is
-    const multiplier = 255.0 / tM;
-    const hR = rgb.r * multiplier;
-    const hG = rgb.g * multiplier;
-    const hB = rgb.b * multiplier;
+    if (this.config.setBrightness) {
+      const dpSetBrightness = createDatapoint(this.platform.connection, {
+        groupAddress: this.config.setBrightness,
+        dpt: 'DPT5.001',
+      });
 
-    // This calculates the Whiteness (not strictly speaking Luminance) of the color
-    const M = Math.max(hR, Math.max(hG, hB));
-    const m = Math.min(hR, Math.min(hG, hB));
-    const Luminance = ((M + m) / 2.0 - 127.5) * (255.0 / 127.5) / multiplier;
+      this.lightService.getCharacteristic(this.platform.Characteristic.Brightness)
+        .onSet(async (value: CharacteristicValue) => {
+          this.startFadeTimer();
 
-    // Calculate the output values
-    const Ro = Math.round(rgb.r - Luminance);
-    const Go = Math.round(rgb.g - Luminance);
-    const Bo = Math.round(rgb.b - Luminance);
-    const Wo = Math.round(Luminance);
+          const brightness = Number(value);
+          this.platform.log.info(`${this.name}: set brightness ${this.config.setBrightness} -> ${brightness}`);
+          dpSetBrightness.write(brightness);
+        });
+    }
+  }
 
-    return {
-      r: Math.max(Math.min(Ro, 255), 0),
-      g: Math.max(Math.min(Go, 255), 0),
-      b: Math.max(Math.min(Bo, 255), 0),
-      w: Math.max(Math.min(Wo, 255), 0),
+  private configureColorMode(rgbw: boolean): void {
+    this.lightService.addCharacteristic(this.platform.Characteristic.Hue);
+    this.lightService.addCharacteristic(this.platform.Characteristic.Saturation);
+    this.lightService.addCharacteristic(this.platform.Characteristic.Brightness);
+
+    this.configureColorListenDatapoints(rgbw);
+
+    const dpSetRed = this.createRequiredDatapoint(this.config.setBrightnessR, 'DPT5');
+    const dpSetGreen = this.createRequiredDatapoint(this.config.setBrightnessG, 'DPT5');
+    const dpSetBlue = this.createRequiredDatapoint(this.config.setBrightnessB, 'DPT5');
+    const dpSetWhite = rgbw ? this.createRequiredDatapoint(this.config.setBrightness, 'DPT5.001') : undefined;
+
+    const writeColorState = (): void => {
+      if (this.hue === undefined || this.saturation === undefined || this.brightness === undefined) {
+        return;
+      }
+
+      if (rgbw) {
+        const rgbwValue = hsvToRgbw(this.hue, this.saturation, this.brightness);
+        this.platform.log.info(
+          `${this.name}: set RGBW -> ${rgbwValue.r}/${rgbwValue.g}/${rgbwValue.b}/${rgbwValue.w}`,
+        );
+        dpSetRed.write(rgbwValue.r);
+        dpSetGreen.write(rgbwValue.g);
+        dpSetBlue.write(rgbwValue.b);
+        dpSetWhite?.write(rgbwValue.w);
+        return;
+      }
+
+      const rgbValue = hsvToRgb(this.hue, this.saturation, this.brightness);
+      this.platform.log.info(`${this.name}: set RGB -> ${rgbValue.r}/${rgbValue.g}/${rgbValue.b}`);
+      dpSetRed.write(rgbValue.r);
+      dpSetGreen.write(rgbValue.g);
+      dpSetBlue.write(rgbValue.b);
     };
+
+    this.lightService.getCharacteristic(this.platform.Characteristic.Hue)
+      .onSet(async (value: CharacteristicValue) => {
+        this.startFadeTimer();
+        this.hue = Number(value);
+        this.platform.log.info(`${this.name}: hue -> ${this.hue}`);
+        writeColorState();
+      });
+
+    this.lightService.getCharacteristic(this.platform.Characteristic.Saturation)
+      .onSet(async (value: CharacteristicValue) => {
+        this.startFadeTimer();
+        this.saturation = Number(value);
+        this.platform.log.info(`${this.name}: saturation -> ${this.saturation}`);
+        writeColorState();
+      });
+
+    this.lightService.getCharacteristic(this.platform.Characteristic.Brightness)
+      .onSet(async (value: CharacteristicValue) => {
+        this.startFadeTimer();
+        this.brightness = Number(value);
+        this.platform.log.info(`${this.name}: brightness -> ${this.brightness}`);
+        writeColorState();
+      });
+  }
+
+  private configureColorListenDatapoints(rgbw: boolean): void {
+    this.configureOptionalColorListenDatapoint(this.config.listenBrightnessR, 'R', value => {
+      this.red = value;
+    });
+    this.configureOptionalColorListenDatapoint(this.config.listenBrightnessG, 'G', value => {
+      this.green = value;
+    });
+    this.configureOptionalColorListenDatapoint(this.config.listenBrightnessB, 'B', value => {
+      this.blue = value;
+    });
+
+    if (rgbw) {
+      this.configureOptionalColorListenDatapoint(this.config.listenBrightness, 'W', value => {
+        this.white = value;
+      });
+    }
+  }
+
+  private configureOptionalColorListenDatapoint(
+    groupAddress: string | undefined,
+    channel: string,
+    update: (value: number) => void,
+  ): void {
+    if (!groupAddress) {
+      return;
+    }
+
+    const datapoint = createDatapoint(this.platform.connection, {
+      groupAddress,
+      dpt: 'DPT5.001',
+      autoread: true,
+    });
+
+    datapoint.on('change', (_oldValue: unknown, newValue: unknown) => {
+      const channelValue = Number(newValue);
+      update(channelValue);
+      this.platform.log.info(`${this.name}: color ${channel} ${groupAddress} -> ${channelValue}`);
+    });
+  }
+
+  private createRequiredDatapoint(groupAddress: string | undefined, dpt: string): Datapoint {
+    if (!groupAddress) {
+      throw new Error(`${this.name}: missing required KNX group address for ${dpt}`);
+    }
+
+    return createDatapoint(this.platform.connection, {
+      groupAddress,
+      dpt,
+    });
+  }
+
+  private startFadeTimer(): void {
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+    }, FADING_TIME_MS);
   }
 }

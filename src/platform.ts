@@ -5,6 +5,7 @@ import fakegato from 'fakegato-history';
 import { Connection } from 'knx';
 
 import { LightAccessory } from './accessory.js';
+import { normalizePlatformConfig } from './config.js';
 
 
 export class LightPlatform implements StaticPlatformPlugin {
@@ -28,28 +29,30 @@ export class LightPlatform implements StaticPlatformPlugin {
     this.uuid = api.hap.uuid;
     this.fakeGatoHistoryService = fakegato(this.api);
 
-    // connect
+    const normalizedConfig = normalizePlatformConfig(config);
+
     this.connection = new Connection({
-      ipAddr: config.ip ?? '224.0.23.12',
-      ipPort: config.port ?? 3671,
+      ipAddr: normalizedConfig.ip,
+      ipPort: normalizedConfig.port,
       handlers: {
-        connected: function () {
-          log.info('KNX connected');
+        connected: () => {
+          this.log.info('KNX connected');
         },
-        error: function (connstatus: unknown) {
-          log.error(`KNX status: ${connstatus}`);
+        error: (connstatus: unknown) => {
+          this.log.error(`KNX status: ${connstatus}`);
         },
       },
     });
 
-    // read devices
-    config.devices.forEach(element => {
-      if (element.name !== undefined && element.listen_status && element.set_status) {
-        this.devices.push(new LightAccessory(this, element));
-      }
-    });
+    for (const invalidDevice of normalizedConfig.invalidDevices) {
+      this.log.warn(`Skipping KNX light "${invalidDevice.name}": ${invalidDevice.reason}`);
+    }
 
-    log.info('finished initializing!');
+    for (const device of normalizedConfig.devices) {
+      this.devices.push(new LightAccessory(this, device));
+    }
+
+    this.log.info(`Finished initializing ${this.devices.length} KNX light(s)`);
   }
 
   accessories(callback: (foundAccessories: AccessoryPlugin[]) => void): void {
