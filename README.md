@@ -13,8 +13,8 @@ Homebridge plugin for controlling KNX lights via Apple HomeKit.
 
 ## Requirements
 
-- [Homebridge](https://homebridge.io) v1.8.0 or later (including v2.0)
-- Node.js v18.20.4, v20.15.1, or v22+
+- [Homebridge](https://homebridge.io) v2.0.2 or later
+- Node.js v22 or v24
 - A KNX IP router or interface
 
 ## Installation

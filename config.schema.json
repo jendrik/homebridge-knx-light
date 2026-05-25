@@ -11,12 +11,14 @@
     },
     "port": {
       "title": "KNX Port",
-      "type": "string",
-      "placeholder": "3671",
+      "type": "number",
+      "placeholder": 3671,
+      "default": 3671,
       "description": "KNX Port"
     },
     "devices": {
       "type": "array",
+      "required": true,
       "items": {
         "title": "Lights",
         "type": "object",
