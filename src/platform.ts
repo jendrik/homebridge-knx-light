@@ -49,6 +49,10 @@ export class LightPlatform implements StaticPlatformPlugin {
     }
 
     for (const device of normalizedConfig.devices) {
+      for (const skippedCapability of device.skippedCapabilities) {
+        this.log.warn(`Skipping KNX light "${device.name}" capability: ${skippedCapability}`);
+      }
+
       this.devices.push(new LightAccessory(this, device));
     }
 

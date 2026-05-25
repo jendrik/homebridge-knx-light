@@ -7,6 +7,7 @@ export interface LightDeviceConfig {
   readonly name: string;
   readonly setStatus: string;
   readonly listenStatus: string;
+  readonly skippedCapabilities: string[];
   readonly setBrightness?: string;
   readonly listenBrightness?: string;
   readonly setBrightnessR?: string;
@@ -68,6 +69,26 @@ function requiredMissingFields(fields: Record<string, string | undefined>): stri
     .map(([field]) => field);
 }
 
+function skippedCapabilities(fields: Record<string, string | undefined>): string[] {
+  const rgbFields = {
+    set_brightness_r: fields.set_brightness_r,
+    set_brightness_g: fields.set_brightness_g,
+    set_brightness_b: fields.set_brightness_b,
+  };
+  const configuredRgbFields = Object.values(rgbFields).filter(Boolean).length;
+
+  if (configuredRgbFields === 0 || configuredRgbFields === Object.keys(rgbFields).length) {
+    return [];
+  }
+
+  const missingRgbFields = requiredMissingFields(rgbFields);
+  const skippedMode = fields.set_brightness ? 'RGB/RGBW' : 'RGB';
+
+  return [
+    `${skippedMode} color disabled; missing required field(s): ${missingRgbFields.join(', ')}`,
+  ];
+}
+
 function normalizeDeviceConfig(rawDevice: unknown): LightDeviceConfig | InvalidDeviceConfig {
   if (!isRecord(rawDevice)) {
     return {
@@ -79,6 +100,14 @@ function normalizeDeviceConfig(rawDevice: unknown): LightDeviceConfig | InvalidD
   const name = readString(rawDevice.name);
   const setStatus = readString(rawDevice.set_status);
   const listenStatus = readString(rawDevice.listen_status);
+  const setBrightness = readString(rawDevice.set_brightness);
+  const listenBrightness = readString(rawDevice.listen_brightness);
+  const setBrightnessR = readString(rawDevice.set_brightness_r);
+  const listenBrightnessR = readString(rawDevice.listen_brightness_r);
+  const setBrightnessG = readString(rawDevice.set_brightness_g);
+  const listenBrightnessG = readString(rawDevice.listen_brightness_g);
+  const setBrightnessB = readString(rawDevice.set_brightness_b);
+  const listenBrightnessB = readString(rawDevice.listen_brightness_b);
   const missingFields = requiredMissingFields({
     name,
     set_status: setStatus,
@@ -96,14 +125,20 @@ function normalizeDeviceConfig(rawDevice: unknown): LightDeviceConfig | InvalidD
     name,
     setStatus,
     listenStatus,
-    setBrightness: readString(rawDevice.set_brightness),
-    listenBrightness: readString(rawDevice.listen_brightness),
-    setBrightnessR: readString(rawDevice.set_brightness_r),
-    listenBrightnessR: readString(rawDevice.listen_brightness_r),
-    setBrightnessG: readString(rawDevice.set_brightness_g),
-    listenBrightnessG: readString(rawDevice.listen_brightness_g),
-    setBrightnessB: readString(rawDevice.set_brightness_b),
-    listenBrightnessB: readString(rawDevice.listen_brightness_b),
+    skippedCapabilities: skippedCapabilities({
+      set_brightness: setBrightness,
+      set_brightness_r: setBrightnessR,
+      set_brightness_g: setBrightnessG,
+      set_brightness_b: setBrightnessB,
+    }),
+    setBrightness,
+    listenBrightness,
+    setBrightnessR,
+    listenBrightnessR,
+    setBrightnessG,
+    listenBrightnessG,
+    setBrightnessB,
+    listenBrightnessB,
   };
 }
 
